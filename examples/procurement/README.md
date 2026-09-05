@@ -57,20 +57,41 @@ and a seller therefore has no way to price its own invoice.
 Note that refusals happen **before** the vault is called. A purchase outside
 the grant never becomes a signature.
 
-## Making it settle
+## A real settlement
 
-Out of the box the wallet holds no testnet USDC, so the facilitator verifies
-the signature and then declines on balance — which is the honest result, and
-proof the signature itself is good:
+With the wallet funded, scenario 1 completes for real on Base Sepolia:
 
 ```
-local EIP-712 recovery : VALID  (recovered 0xD371…5860)
+1. Buy today's copper quote — $0.02
+  PAID     $0.02 → 0x209693Bc…
+  settlement: 0x21ff3f6dfd80222b94e499b79dc87501959460897ce59c54820cda552fae0b5b
+  goods:    {"commodity":"copper","unit":"USD/tonne","price":9412.5,…}
+
+  local EIP-712 recovery : VALID  (recovered 0xD371…5860)
+  live x402 facilitator  : VALID
+  settlement /quote/copper: SETTLED
+```
+
+[On-chain](https://sepolia.basescan.org/tx/0x21ff3f6dfd80222b94e499b79dc87501959460897ce59c54820cda552fae0b5b):
+one ERC-20 `Transfer` of 0.02 USDC from the agent's wallet to Northwind, in
+block 46434328. The payer's balance went 20 → 19.98.
+
+The line worth staring at is the one that is missing. The agent's wallet holds
+**zero ETH**, and the transaction's `from` is the facilitator's address, not the
+agent's — the facilitator paid the gas to redeem an authorization the agent
+merely signed. That is why a buying agent needs no gas, no RPC node, and no
+chain client, and why `agent-pay` can have no dependencies.
+
+## Funding your own run
+
+`.demo-wallet.json` is generated on first run and gitignored. Fund the printed
+address with free Base Sepolia USDC at **<https://faucet.circle.com>** — pick
+the **Base Sepolia** network, the drip is 20 USDC. Until it is funded the
+facilitator verifies the signature and then honestly declines:
+
+```
+local EIP-712 recovery : VALID
 live x402 facilitator  : invalid_exact_evm_insufficient_balance
 ```
 
-To settle for real, fund the printed address with free Base Sepolia USDC at
-**<https://faucet.circle.com>** (Base Sepolia network), then re-run. The faucet
-needs a human — sign-in and a captcha.
-
-`.demo-wallet.json` is gitignored. It is a testnet key; do not fund it with
-anything real.
+It is a testnet key. Do not fund it with anything real.
