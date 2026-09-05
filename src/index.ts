@@ -431,3 +431,96 @@ export function defaultSigner(): PaymentSigner {
     process.env.NODE_ENV ?? "development",
   );
 }
+
+// ── Looking at the money ───────────────────────────────────────────────────
+
+/**
+ * Where an agent's funds live and where to go and look at them.
+ *
+ * A wallet address is not an account with a provider — there is no dashboard
+ * that comes with it. The balance is a question you ask the chain, and the
+ * history is a public page. These two helpers are the answers, so that
+ * "how much has my agent got left?" is a function call rather than a research
+ * project.
+ */
+const EVM_RPC: Record<string, string> = {
+  "base-sepolia": "https://sepolia.base.org",
+  "eip155:84532": "https://sepolia.base.org",
+  base: "https://mainnet.base.org",
+  "eip155:8453": "https://mainnet.base.org",
+};
+
+const EVM_EXPLORER: Record<string, string> = {
+  "base-sepolia": "https://sepolia.basescan.org",
+  "eip155:84532": "https://sepolia.basescan.org",
+  base: "https://basescan.org",
+  "eip155:8453": "https://basescan.org",
+};
+
+export interface WalletView {
+  address: string;
+  /** Raw token units. */
+  atomic: bigint;
+  /** Priced by the same rules that gate a purchase, so the two agree. */
+  usdCents: number;
+  /** Human-readable, e.g. "19.98 USDC". */
+  formatted: string;
+  /** The public page showing this wallet and every transfer in or out. */
+  explorerUrl: string;
+}
+
+/** Link to a transaction on the rail's public explorer, for a receipt. */
+export function explorerTxUrl(network: string, transaction: string): string | null {
+  const base = EVM_EXPLORER[network];
+  return base ? `${base}/tx/${transaction}` : null;
+}
+
+/**
+ * Reads an agent's balance straight from the chain.
+ *
+ * EVM rails only — one `eth_call` to the token's `balanceOf`, which is why
+ * this needs no dependency and no API key. Other rails have different RPC
+ * shapes; rather than pretend, this refuses and names what it would need.
+ */
+export async function walletBalance(
+  address: string,
+  terms: AssetTerms,
+  opts: { rpcUrl?: string; symbol?: string; fetcher?: Fetcher } = {},
+): Promise<WalletView> {
+  const rpcUrl = opts.rpcUrl ?? EVM_RPC[terms.network];
+  if (!rpcUrl) {
+    throw new NotConfiguredError(
+      `No built-in RPC for network '${terms.network}'. Pass \`rpcUrl\` for an EVM chain; ` +
+        "non-EVM rails (Solana, XRPL, Stellar…) need their own balance call, which this " +
+        "library does not speak.",
+    );
+  }
+  const fetcher = opts.fetcher ?? fetch;
+  const data = `0x70a08231${address.slice(2).toLowerCase().padStart(64, "0")}`;
+  const res = await fetcher(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_call",
+      params: [{ to: terms.asset, data }, "latest"],
+    }),
+  });
+  const body = (await res.json()) as { result?: string; error?: { message?: string } };
+  if (!body.result || body.result === "0x") {
+    throw new NotConfiguredError(
+      `Balance read failed on ${terms.network}: ${body.error?.message ?? "empty result"}`,
+    );
+  }
+  const atomic = BigInt(body.result);
+  const whole = Number(atomic) / 10 ** terms.decimals;
+  const explorer = EVM_EXPLORER[terms.network];
+  return {
+    address,
+    atomic,
+    usdCents: atomicToUsdCents(atomic.toString(), terms) ?? 0,
+    formatted: `${whole.toFixed(Math.min(terms.decimals, 6))} ${opts.symbol ?? "tokens"}`,
+    explorerUrl: explorer ? `${explorer}/address/${address}` : rpcUrl,
+  };
+}

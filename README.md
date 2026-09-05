@@ -14,11 +14,114 @@ ordinary HTTP, with spend caps you set and no private keys in your process.
 
 ---
 
-## The idea
+## What this does
 
 Your agent requests a URL. If it costs money, the URL says so — `402 Payment
-Required`, with a price attached. `agent-pay` checks that price against the
-agent's budget, has your vault sign for it, and replays the request.
+Required`, with a price attached. `agent-pay` checks that price against limits
+you set, has your vault pay it, and replays the request. A free URL comes back
+untouched, so your agent's code never needs to know which URLs cost money.
+
+That lets an agent buy things on its own: a paid API, a data feed, a document,
+another company's agent. No account to open at the seller, no card on file, no
+invoice, no minimum. It works for a purchase of two cents.
+
+---
+
+# How the money works
+
+**If you have never used crypto, read this part.** It is the whole of what you
+need to know, and there is less of it than you think.
+
+## Your agent has an account
+
+It is an address — a long string like
+`0xD371Bb256018B09456df3Ca3b0dF38dC6C645860`. Treat it as an account number.
+You can share it freely; it is how people send money in.
+
+The balance is held in **USDC**, a dollar stablecoin. One USDC is one dollar,
+and stays one dollar. You are not buying something whose price moves — this is
+dollars, moved on rails that happen to be fast and cheap enough for a machine
+to use for a two-cent purchase.
+
+The account's key lives in **your vault**, never in this library. That is why
+setting this up involves no seed phrase and no wallet app.
+
+## Putting money in
+
+**On testnet (free, use this first):** get 20 test USDC from
+<https://faucet.circle.com> — pick **Base Sepolia**, paste your address. It is
+play money and cannot be spent anywhere real.
+
+**With real money:** buy USDC on an exchange you already use (Coinbase, Kraken,
+Binance…) and withdraw it to your agent's address. Some let you buy USDC with a
+card directly.
+
+> ### ⚠️ The one mistake everybody makes
+>
+> When you withdraw, the exchange asks which **network** to send on. Your
+> address exists on _every_ one of them, so a withdrawal on the wrong network
+> is accepted and simply arrives somewhere else — your balance stays zero and
+> nothing looks broken.
+>
+> **Pick `Base` (or `Base Sepolia` for testnet), and send a small amount
+> first.** If a deposit does not show up, this is almost always why.
+
+## Checking the balance
+
+```ts
+import { walletBalance } from "agent-pay";
+
+const view = await walletBalance(agentAddress, USDC, { symbol: "USDC" });
+view.formatted; // "19.98 USDC"
+view.usdCents; // 1998
+view.explorerUrl; // the public page listing every payment in and out
+```
+
+Or, in the example: `npm run wallet`
+
+```
+  Address    0xD371Bb256018B09456df3Ca3b0dF38dC6C645860
+  Balance    19.980000 USDC   ($19.98)
+```
+
+## Seeing what it spent
+
+Two places, and you want both.
+
+**The public record.** Every payment is permanent and public. `view.explorerUrl`
+opens a page listing every transfer in and out of your agent's account, with
+amounts, timestamps and counterparties. Nobody can edit it, including you.
+
+**Your own receipts.** Each purchase hands back a `PaymentReceipt` — amount,
+seller, and the transaction id. Store them; that is your ledger, and it is the
+half that knows _what was bought_, which the public record does not.
+
+```ts
+const { receipt } = await payAndFetch(url, {}, grant, { signer });
+// { paid: true, usdCents: 2, payTo: "0x2096…", transaction: "0x21ff3f6d…" }
+
+explorerTxUrl("base-sepolia", receipt.transaction);
+// → https://sepolia.basescan.org/tx/0x21ff3f6d…
+```
+
+## What it costs
+
+The seller's price, and nothing else. No monthly fee, no account, no minimum.
+
+Your agent pays **no transaction fee**, which surprises people. It signs a
+payment authorization; the seller's facilitator submits it and pays the network
+fee to do so. In the worked example the agent's account holds **zero** of the
+network's own currency and still completes purchases.
+
+---
+
+## Quick start
+
+```bash
+npm install agent-pay
+```
+
+Zero runtime dependencies. Node 20+.
 
 ```ts
 import { payAndFetch, defaultSigner } from "agent-pay";
@@ -34,56 +137,46 @@ if (refusal) console.error(`refused: ${refusal.reason}`); // over_per_call_cap, 
 if (receipt) console.log(`paid ${receipt.usdCents}c → ${receipt.transaction}`);
 ```
 
-A free URL comes back untouched. Your agent's code doesn't need to know which
-URLs cost money and which don't.
-
 The wire protocol is [x402](https://x402.org) — HTTP 402 plus an `X-PAYMENT`
-header — so any x402 seller, API, or agent is already a counterparty. Money
-settles as stablecoin because that is what lets one machine pay another in a
-couple of seconds for a fraction of a cent, with no invoice, no account, and no
-card on file at the seller.
+header — so any x402 seller, API, or agent is already a counterparty.
 
-## Nobody has to understand any of that
-
-That is the point. There is no seed phrase in this library, because there are
-no keys in it. Signing happens behind an HTTP call to a vault you control.
-Whoever sets this up sees three things, all in dollars:
-
-1. **A funded account.** Topped up by card or transfer.
-2. **Caps.** Per purchase, per month, and the amount above which a human
-   approves it instead.
-3. **An allowlist.** The hostnames an agent is allowed to pay.
-
-Those three become a `PaymentGrant`, and that is the only thing this library
-takes an opinion on.
-
-## Install
+**A complete working example**, with a real purchase settled on a test network,
+is in [`examples/procurement`](examples/procurement). It needs no account
+anywhere and costs nothing:
 
 ```bash
-npm install agent-pay
+cd examples/procurement && npm install && npm run demo
 ```
 
-Zero runtime dependencies. Node 20+.
+## The vault
+
+`agent-pay` holds no keys. Signing is one HTTP call to a service you run:
 
 ```bash
-ARM_PAY_SIGNER_URL=https://vault.internal/sign   # your vault's signing endpoint
-ARM_PAY_SIGNER_TOKEN=…                           # bearer token for it
+ARM_PAY_SIGNER_URL=https://vault.internal/sign
+ARM_PAY_SIGNER_TOKEN=…
 ```
+
+`examples/procurement/vault.mjs` is a complete, readable one in 90 lines. In
+production this is your HSM, KMS, or custody provider.
 
 With no signer configured, `defaultSigner()` returns clearly-marked simulated
 payloads in development and **refuses outright in production** — a signature
 that fails at settlement surfaces as an opaque seller error hours later, which
 is the worst way to find out you were misconfigured.
 
-## The grant
+## The rules you set
+
+A `PaymentGrant` is the budget decision, and the only thing this library takes
+an opinion on:
 
 ```ts
 const grant: PaymentGrant = {
   agentId: "agt_01",
-  tenantId: "tn_01",
-  maxPerCallUsdCents: 500, // $5 a purchase
+  tenantId: "acme",
+  maxPerCallUsdCents: 5_000, //  $50 a purchase
   remainingUsdCents: 20_000, // $200 left this month
-  allowedPayeeHosts: ["api.seller.example"],
+  allowedPayeeHosts: ["api.seller.example"], // and nobody else
   allowedAssets: [
     {
       network: "base",
@@ -93,7 +186,7 @@ const grant: PaymentGrant = {
     },
   ],
   expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-  humanApprovalAboveUsdCents: 5_000, // $50+ goes to a person
+  humanApprovalAboveUsdCents: 1_000, // $10+ goes to a person
 };
 ```
 

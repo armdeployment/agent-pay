@@ -7,6 +7,8 @@ import {
   vaultSigner,
   NotConfiguredError,
   type PaymentGrant,
+  walletBalance,
+  explorerTxUrl,
   type PaymentOffer,
 } from "../src/index.js";
 
@@ -196,5 +198,64 @@ describe("vault signer", () => {
       async () => new Response("no", { status: 403 }),
     );
     await expect(signer(offer, grant)).rejects.toBeInstanceOf(NotConfiguredError);
+  });
+});
+
+describe("looking at the money", () => {
+  const balanceReply = (atomicHex: string) => async () =>
+    new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: atomicHex }));
+
+  it("reads a balance and prices it the same way the gate does", async () => {
+    // 19.98 USDC. Derived, not hand-converted — a hand-typed hex literal is a
+    // second thing that can be wrong, and it was.
+    const view = await walletBalance("0xD371Bb256018B09456df3Ca3b0dF38dC6C645860", USDC_BASE, {
+      symbol: "USDC",
+      fetcher: balanceReply(`0x${(19_980_000).toString(16)}`),
+    });
+    expect(view.atomic).toBe(19_980_000n);
+    expect(view.usdCents).toBe(1998);
+    expect(view.formatted).toBe("19.980000 USDC");
+  });
+
+  it("calls balanceOf on the token with the owner left-padded", async () => {
+    let sent: any;
+    await walletBalance("0xD371Bb256018B09456df3Ca3b0dF38dC6C645860", USDC_BASE, {
+      fetcher: async (_u, init) => {
+        sent = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ result: "0x0" }));
+      },
+    }).catch(() => {});
+    expect(sent.method).toBe("eth_call");
+    expect(sent.params[0].to).toBe(USDC_BASE.asset);
+    expect(sent.params[0].data).toBe(
+      "0x70a08231000000000000000000000000d371bb256018b09456df3ca3b0df38dc6c645860",
+    );
+  });
+
+  it("points at the public explorer for the rail", async () => {
+    const view = await walletBalance("0xabc", USDC_BASE, { fetcher: balanceReply("0x1") });
+    expect(view.explorerUrl).toBe("https://basescan.org/address/0xabc"); // USDC_BASE is mainnet
+    const testnet = await walletBalance(
+      "0xabc",
+      { ...USDC_BASE, network: "base-sepolia" },
+      {
+        fetcher: balanceReply("0x1"),
+      },
+    );
+    expect(testnet.explorerUrl).toBe("https://sepolia.basescan.org/address/0xabc");
+    expect(explorerTxUrl("base-sepolia", "0xdead")).toBe("https://sepolia.basescan.org/tx/0xdead");
+    expect(explorerTxUrl("solana", "sig")).toBeNull();
+  });
+
+  it("REFUSES a rail it cannot read rather than reporting zero", async () => {
+    await expect(
+      walletBalance("0xabc", { ...USDC_BASE, network: "xrpl:1" }, {}),
+    ).rejects.toBeInstanceOf(NotConfiguredError);
+  });
+
+  it("REFUSES an empty RPC result rather than reporting zero", async () => {
+    await expect(
+      walletBalance("0xabc", USDC_BASE, { fetcher: async () => new Response(JSON.stringify({})) }),
+    ).rejects.toBeInstanceOf(NotConfiguredError);
   });
 });

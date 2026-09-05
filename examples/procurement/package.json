@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo": "node demo.mjs"
+    "predemo": "npm --prefix ../.. run build",
+    "demo": "node demo.mjs",
+    "prewallet": "npm --prefix ../.. run build",
+    "wallet": "node wallet.mjs"
   },
   "dependencies": {
     "viem": "^2.21.0"
