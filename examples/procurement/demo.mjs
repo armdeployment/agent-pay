@@ -69,6 +69,7 @@ const grant = {
 };
 
 let verifications = [];
+let settlements = [];
 
 async function buy(label, url, activeGrant = grant) {
   const signer = vaultSigner("http://localhost:8790", "demo-vault-token", "production");
@@ -114,6 +115,7 @@ const main = async () => {
     network: NETWORK,
     domain,
     onVerify: (v) => verifications.push(v),
+    onSettle: (s) => settlements.push(s),
   });
   // A supplier Acme has no relationship with.
   const rogue = await startSeller({
@@ -169,6 +171,16 @@ const main = async () => {
         ? c.ok("VALID")
         : c.no(`${live.invalidReason}`);
     console.log(`    live x402 facilitator  : ${verdict}`);
+  }
+
+  for (const s of settlements) {
+    const t = s.settled;
+    console.log(
+      `\n  settlement ${s.path}: ` +
+        (t.success
+          ? `${c.ok("SETTLED")} ${c.dim(`https://sepolia.basescan.org/tx/${t.transaction}`)}`
+          : c.no(t.errorReason ?? t.unreachable ?? "declined")),
+    );
   }
 
   if (balance === 0n) {

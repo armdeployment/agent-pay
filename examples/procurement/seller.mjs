@@ -127,9 +127,9 @@ async function verifyLocally(payload, requirement) {
   return { ok: true, signer };
 }
 
-async function verifyLive(payload, requirement) {
+async function callFacilitator(endpoint, payload, requirement) {
   try {
-    const res = await fetch(`${FACILITATOR}/verify`, {
+    const res = await fetch(`${FACILITATOR}/${endpoint}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       signal: AbortSignal.timeout(15_000),
@@ -150,7 +150,11 @@ async function verifyLive(payload, requirement) {
   }
 }
 
-export function startSeller({ port = 8791, payTo, asset, network, domain, onVerify }) {
+const verifyLive = (payload, requirement) => callFacilitator("verify", payload, requirement);
+/** Broadcasts the authorization. This is the step that actually moves money. */
+const settleLive = (payload, requirement) => callFacilitator("settle", payload, requirement);
+
+export function startSeller({ port = 8791, payTo, asset, network, domain, onVerify, onSettle }) {
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://x").pathname;
     const price = CATALOG[path];
@@ -183,13 +187,34 @@ export function startSeller({ port = 8791, payTo, asset, network, domain, onVeri
         JSON.stringify({ ...requirements, error: `facilitator: ${live.invalidReason}` }),
       );
     }
+    if (live.unreachable) {
+      res.writeHead(402, { "content-type": "application/json" });
+      return void res.end(
+        JSON.stringify({ ...requirements, error: `facilitator unreachable: ${live.unreachable}` }),
+      );
+    }
+
+    // Verified is not paid. Settlement is what broadcasts the authorization and
+    // moves the USDC; handing over goods on a verify alone is how a seller ends
+    // up giving away inventory for a signature nobody ever redeemed.
+    const settled = await settleLive(decoded.payload, requirement);
+    onSettle?.({ path, settled });
+    if (!settled.success) {
+      res.writeHead(402, { "content-type": "application/json" });
+      return void res.end(
+        JSON.stringify({
+          ...requirements,
+          error: `settlement failed: ${settled.errorReason ?? settled.unreachable ?? "unknown"}`,
+        }),
+      );
+    }
 
     res.writeHead(200, {
       "content-type": "application/json",
       "X-PAYMENT-RESPONSE": Buffer.from(
         JSON.stringify({
           success: true,
-          transaction: live.transaction ?? `local-verify:${local.signer}`,
+          transaction: settled.transaction,
           network: requirement.network,
           payer: local.signer,
         }),
