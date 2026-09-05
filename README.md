@@ -122,15 +122,32 @@ paid at all, however convincingly the response describes it.
 
 ## Rails
 
-x402 settles on EVM stablecoins (Base and friends) and Solana today. This
-library is rail-agnostic on purpose — it validates and gates, your vault signs
-— so a new rail is a change behind the `PaymentSigner` interface, not a change
-here.
+The network name in a 402 offer is an opaque string to this library: it is
+matched against your grant's `allowedAssets` and handed to your vault. So the
+rails you can use are whatever your vault can sign for and your seller's
+facilitator can settle — adding one needs no change here.
 
-Bitcoin and XRP are deliberately not wired up: neither is an x402 settlement
-rail, and BTC's block time makes per-call agent purchases impractical. Both
-would need a settlement adapter behind the same interface. Open an issue if you
-need one.
+The public reference facilitator settles `exact` on all of these today:
+
+| Rail                          | x402 network id                |
+| ----------------------------- | ------------------------------ |
+| EVM (Base, and CAIP-2 chains) | `base-sepolia`, `eip155:84532` |
+| Solana                        | `solana:…`, `solana-devnet`    |
+| XRP Ledger                    | `xrpl:1`                       |
+| Stellar                       | `stellar:testnet`              |
+| Algorand                      | `algorand:…`                   |
+| Aptos                         | `aptos:2`                      |
+| Hedera                        | `hedera:testnet`               |
+
+Query `GET <facilitator>/supported` for the live list — the one above was read
+from `https://x402.org/facilitator` and will grow.
+
+**Bitcoin is the notable absence.** It is not an x402 settlement rail, and its
+block time makes per-call agent purchases impractical regardless. Paying in BTC
+would need a settlement adapter behind the same `PaymentSigner` interface.
+
+Only the `exact` scheme is gated today; `upto` and `batch-settlement` are
+refused as `unsupported_scheme` rather than guessed at.
 
 ## API
 

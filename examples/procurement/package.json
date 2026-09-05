@@ -1,0 +1,11 @@
+{
+  "name": "agent-pay-example-procurement",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "node demo.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}
