@@ -14,6 +14,14 @@ ordinary HTTP, with spend caps you set and no private keys in your process.
 
 ---
 
+## Watch it (71 seconds)
+
+[![agent-pay explained](docs/agent-pay-poster.png)](docs/agent-pay-explainer.mp4)
+
+**▶ [Play the explainer](docs/agent-pay-explainer.mp4)** — what it does, how to
+fund an agent from Coinbase, how to check the balance, the limits you set, and
+a real purchase settling on a test network.
+
 ## What this does
 
 Your agent requests a URL. If it costs money, the URL says so — `402 Payment
